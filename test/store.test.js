@@ -79,3 +79,25 @@ test('many processes changing the file at once lose nothing', async () => {
   await Promise.all([1, 2, 3, 4].map(() => new Promise((res, rej) => spawn('node', ['--input-type=module', '-e', code]).on('exit', (c) => (c ? rej(new Error('exit ' + c)) : res())))))
   assert.equal(s.read(f).state.comments.length, 80)
 })
+
+test('moving by hand: only the allowed moves; sent needs a batch; processing is Claude\'s', () => {
+  const f = tmp()
+  const id = s.mutate(f, (st) => s.add(st, input('x'))).id
+  const status = () => s.read(f).state.comments[0].status
+  assert.throws(() => s.mutate(f, (st) => s.move(st, id, 'done')), /cannot go from draft to done/)
+  assert.throws(() => s.mutate(f, (st) => s.move(st, id, 'sent', ' ')), /batch/)
+  s.mutate(f, (st) => s.move(st, id, 'sent', 'b1'))
+  assert.deepEqual([status(), s.read(f).state.comments[0].batch], ['sent', 'b1'])
+  s.mutate(f, (st) => s.move(st, id, 'draft')) // withdraw it
+  assert.deepEqual([status(), s.read(f).state.comments[0].batch], ['draft', undefined])
+  s.mutate(f, (st) => s.send(st, 'b2')); s.mutate(f, (st) => s.take(st))
+  assert.throws(() => s.mutate(f, (st) => s.move(st, id, 'draft')), /cannot go from processing/)
+  assert.throws(() => s.mutate(f, (st) => s.edit(st, id, 'new text')), /working on/)
+  s.mutate(f, (st) => s.finish(st, id, 'ok'))
+  s.mutate(f, (st) => s.move(st, id, 'archive'))
+  s.mutate(f, (st) => s.move(st, id, 'done'))
+  s.mutate(f, (st) => s.move(st, id, 'draft')) // rework: back to a draft, to be edited and sent again
+  assert.equal(status(), 'draft')
+  s.mutate(f, (st) => s.edit(st, id, 'changed text'))
+  assert.equal(s.read(f).state.comments[0].comment, 'changed text')
+})

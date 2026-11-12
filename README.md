@@ -45,8 +45,19 @@ Two controls on the board:
 - **Send**: asks for the **name of the batch**, then every draft becomes `sent`.
 - **Archive**: every `done` comment goes to `archive`.
 
-`processing`, `done` and `archive` are grouped by batch name; a group folds and unfolds (remembered). A click on a card goes to
-its page, scrolls to the frame and opens it.
+`processing`, `done` and `archive` are grouped by batch name; a group folds and unfolds (remembered).
+
+On a card: a click on its **text** edits it in place (`⌘↵` / blur saves, `Esc` cancels; not while Claude works on it); the
+**locate** icon goes to its page, scrolls to the frame and opens it. **Drag** a card to another column:
+
+| From | To |
+| --- | --- |
+| draft | sent (asks for the batch name, like Send) |
+| sent | draft (withdraw it) |
+| done | archive, draft (rework it) |
+| archive | done, draft |
+
+`processing` is Claude's: nothing is dragged into or out of it.
 
 ## How Claude is started
 

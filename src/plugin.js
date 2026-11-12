@@ -202,7 +202,14 @@ export function pageComments(options = {}) {
             store.write(file, { version: 1, comments: list })
             result = { restored: list.length }
           } else if (req.method === 'POST' && url.pathname === '/archive') result = store.mutate(file, (s) => store.archiveDone(s))
-          else if (req.method === 'PATCH' && id) result = store.mutate(file, (s) => store.edit(s, id, b.comment))
+          else if (req.method === 'PATCH' && id) {
+            result = store.mutate(file, (s) => {
+              if (b.comment !== undefined) store.edit(s, id, b.comment)
+              if (b.status !== undefined) return store.move(s, id, b.status, b.batch)
+              return s.comments.find((c) => c.id === id)
+            })
+            if (b.status === 'sent') tried.delete(id)
+          }
           else if (req.method === 'DELETE' && id) result = store.mutate(file, (s) => store.remove(s, id))
           else return next()
           changed()

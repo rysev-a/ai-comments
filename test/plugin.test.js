@@ -118,3 +118,18 @@ test('only the page of this server may change comments; a lost file comes back f
     assert.equal((await t.api('POST', '/restore', { comments: [] })).status, 400, 'never over a file that exists')
   } finally { await t.server.close() }
 })
+
+test('dragging a draft to Sent (PATCH with a batch) starts the agent like Send does', async () => {
+  const t = await start('ok')
+  try {
+    const id = (await t.add('one')).json.id
+    assert.equal((await t.api('PATCH', '/' + id, { status: 'sent' })).status, 400, 'a batch needs a name')
+    assert.equal((await t.api('PATCH', '/' + id, { status: 'done' })).status, 400, 'not by hand')
+    assert.equal((await t.api('PATCH', '/' + id, { status: 'sent', batch: 'dragged' })).status, 200)
+    await wait(() => s.read(t.file).state.comments[0].status === 'done')
+    assert.equal(s.read(t.file).state.comments[0].batch, 'dragged')
+    assert.equal((await t.api('PATCH', '/' + id, { status: 'archive' })).status, 200)
+    assert.equal((await t.api('PATCH', '/' + id, { comment: 'edited in place' })).status, 200)
+    assert.equal(s.read(t.file).state.comments[0].comment, 'edited in place')
+  } finally { await t.server.close() }
+})

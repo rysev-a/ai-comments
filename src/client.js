@@ -9,13 +9,15 @@
 
   const API = CONFIG.route
   const COLUMNS = ['draft', 'sent', 'processing', 'done', 'archive']
+  // the moves a person may make by dragging; `processing` is Claude's (the same table as the server's)
+  const MOVES = { draft: ['sent'], sent: ['draft'], done: ['archive', 'draft'], archive: ['done', 'draft'] }
   const TITLES = { draft: 'Draft', sent: 'Sent', processing: 'Processing', done: 'Done', archive: 'Archive' }
   // the copy is per project: another project served on the same port must never get these comments
   const LS = `page-comments:v1:${CONFIG.project}`
   const LS_FOLD = `page-comments:folded:${CONFIG.project}`
 
   /** @type {{comments: any[], agent: string, picking: boolean, board: boolean, open: string|null, sending: boolean, editing: string|null}} */
-  const S = { comments: [], agent: 'idle', error: null, picking: false, board: false, open: null, sending: false, editing: null }
+  const S = { comments: [], agent: 'idle', error: null, dragging: null, sendOne: null, picking: false, board: false, open: null, sending: false, editing: null }
   let folded = new Set()
   try { folded = new Set(JSON.parse(localStorage.getItem(LS_FOLD) || '[]')) } catch { /* nothing remembered */ }
   try { S.comments = JSON.parse(localStorage.getItem(LS) || '[]') } catch { /* nothing remembered */ }
@@ -100,7 +102,7 @@
   const lastProgress = new Map()
   function renderBoard() {
     if (!S.board) { $('board').innerHTML = ''; return }
-    if (S.editing && root.activeElement?.tagName === 'TEXTAREA') return // do not wipe what is being typed; it renders on blur
+    if (S.dragging || (S.editing && root.activeElement?.tagName === 'TEXTAREA')) return // do not wipe what is being dragged or typed; it renders at the end
     const by = (st) => S.comments.filter((c) => c.status === st)
     const drafts = by('draft').length, done = by('done').length
     const agent = S.agent === 'running' ? '<span class="agent on"><i class="pulse"></i>Claude is working</span>' : S.agent === 'off' ? '<span class="agent">no agent: sent comments wait for a session</span>' : '<span class="agent">Claude is idle</span>'
@@ -109,9 +111,9 @@
         <button class="btn primary" data-act="send" ${drafts ? '' : 'disabled'}>${I.send} Send ${drafts || ''}</button>
         <button class="btn" data-act="archive" ${done ? '' : 'disabled'}>${I.archive} Archive ${done || ''}</button>
         <button class="ico" data-act="close" title="Close (Esc)">${I.x}</button></header>
-      ${S.sending ? `<form class="sendbar" data-form="send"><label>Name of the batch <input name="batch" required autofocus value="${esc(defaultBatch())}" maxlength="80" /></label>
-        <button class="btn primary" type="submit">Send ${drafts}</button><button class="btn" type="button" data-act="cancel-send">Cancel</button></form>` : ''}
-      <div class="cols">${COLUMNS.map((st) => `<div class="col"><h3 class="h-${st}">${TITLES[st]} <em>${by(st).length}</em></h3><div class="list">${column(st, by(st))}</div></div>`).join('')}</div></section>`
+      ${S.sending ? `<form class="sendbar" data-form="send"><label>${S.sendOne ? 'Name of the batch for this comment' : 'Name of the batch'} <input name="batch" required autofocus value="${esc(defaultBatch())}" maxlength="80" /></label>
+        <button class="btn primary" type="submit">Send ${S.sendOne ? 1 : drafts}</button><button class="btn" type="button" data-act="cancel-send">Cancel</button></form>` : ''}
+      <div class="cols">${COLUMNS.map((st) => `<div class="col" data-status="${st}"><h3 class="h-${st}">${TITLES[st]} <em>${by(st).length}</em></h3><div class="list">${column(st, by(st))}</div></div>`).join('')}</div></section>`
     // the bars grow from where they were: the progress is seen moving
     for (const bar of root.querySelectorAll('.bar i[data-id]')) {
       const id = bar.dataset.id, to = bar.dataset.to
@@ -120,6 +122,7 @@
       requestAnimationFrame(() => requestAnimationFrame(() => (bar.style.width = to + '%')))
       lastProgress.set(id, to)
     }
+    const ta = root.querySelector('textarea[data-edit]'); if (ta && root.activeElement !== ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length) } // edit in place: ready to type
     const f = root.querySelector('[name=batch]'); if (f && !f.dataset.seen) { f.dataset.seen = '1'; f.focus(); f.select() }
   }
   const defaultBatch = () => { const d = new Date(), p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}` }
@@ -140,12 +143,14 @@
 
   function card(c, compact) {
     const editing = S.editing === c.id
-    return `<article class="card s-${c.status}" data-id="${c.id}" ${compact ? '' : 'data-act="goto"'}>
-      ${editing ? `<textarea data-edit="${c.id}">${esc(c.comment)}</textarea>` : `<p class="text">${esc(c.comment)}</p>`}
+    const canEdit = !compact && c.status !== 'processing'
+    const canDrag = !compact && !!MOVES[c.status]
+    return `<article class="card s-${c.status}" data-id="${c.id}" ${canDrag ? 'draggable="true"' : ''}>
+      ${editing ? `<textarea data-edit="${c.id}">${esc(c.comment)}</textarea>` : `<p class="text ${canEdit ? 'editable' : ''}" ${canEdit ? `data-act="edit" data-id="${c.id}" title="Click to edit"` : ''}>${esc(c.comment)}</p>`}
       ${c.status === 'processing' ? `<div class="bar"><i data-id="${c.id}" data-to="${c.progress ?? 0}"></i><b>${c.progress ?? 0}%</b></div>` : ''}
       ${c.note ? `<p class="note">${esc(c.note)}</p>` : ''}
       <footer><span>${esc(c.route)} · ${ago(c.updatedAt || c.createdAt)}</span><span class="acts">
-        ${c.status === 'draft' ? `<button class="ico" data-act="edit" data-id="${c.id}" title="Edit">${I.pencil}</button>` : ''}
+        ${compact ? '' : `<button class="ico" data-act="goto" data-id="${c.id}" title="Show on the page">${I.locate}</button>`}
         <button class="ico" data-act="delete" data-id="${c.id}" title="Delete">${I.trash}</button></span></footer></article>`
   }
 
@@ -212,15 +217,14 @@
   // --- events ---------------------------------------------------------------------------------------------------------------------------
   root.addEventListener('click', (e) => {
     const el = e.target.closest('[data-act]'); if (!el) return
-    if (el.dataset.act === 'goto' && e.target.closest('button, textarea')) return // a button inside the card does its own thing
     const id = el.dataset.id || el.closest('[data-id]')?.dataset.id
     switch (el.dataset.act) {
       case 'board': S.board = !S.board; S.sending = false; break
-      case 'close': S.board = false; S.sending = false; break
+      case 'close': S.board = false; S.sending = false; S.sendOne = null; break
       case 'pick': S.picking = !S.picking; box = null; drag = null; break
       case 'open': S.open = S.open === id ? null : id; break
-      case 'send': S.sending = true; break
-      case 'cancel-send': S.sending = false; break
+      case 'send': S.sending = true; S.sendOne = null; break
+      case 'cancel-send': S.sending = false; S.sendOne = null; break
       case 'archive': act(call('POST', '/archive', {})); return
       case 'retry': act(call('POST', '/retry', {})); return
       case 'fold': folded.has(el.dataset.key) ? folded.delete(el.dataset.key) : folded.add(el.dataset.key); try { localStorage.setItem(LS_FOLD, JSON.stringify([...folded])) } catch { /* fine */ } break
@@ -236,8 +240,9 @@
     e.preventDefault()
     if (e.target.dataset.form !== 'send') return
     const batch = new FormData(e.target).get('batch')
-    S.sending = false
-    act(call('POST', '/send', { batch }))
+    const one = S.sendOne
+    S.sending = false; S.sendOne = null
+    act(one ? call('PATCH', '/' + one, { status: 'sent', batch }) : call('POST', '/send', { batch }))
     renderAll()
   })
   root.addEventListener('focusout', (e) => {
@@ -251,6 +256,35 @@
     if (e.target.dataset?.edit && e.key === 'Escape') { e.stopPropagation(); S.editing = null; renderAll() }
     if (e.target.dataset?.edit && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.target.blur()
     if (e.target.closest?.('.drafter') && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void saveDraft()
+  })
+  // dragging a card to another column
+  const colOf = (e) => e.target.closest?.('.col[data-status]')
+  root.addEventListener('dragstart', (e) => {
+    const card = e.target.closest?.('.card[draggable="true"]'); if (!card) return
+    S.dragging = card.dataset.id
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', S.dragging)
+    card.classList.add('dragging')
+  })
+  root.addEventListener('dragover', (e) => {
+    const col = colOf(e); if (!col || !S.dragging) return
+    const from = S.comments.find((c) => c.id === S.dragging)?.status
+    if ((MOVES[from] || []).includes(col.dataset.status)) { e.preventDefault(); col.classList.add('over') }
+  })
+  root.addEventListener('dragleave', (e) => { const col = colOf(e); if (col && !col.contains(e.relatedTarget)) col.classList.remove('over') })
+  root.addEventListener('drop', (e) => {
+    const col = colOf(e), id = S.dragging; if (!col || !id) return
+    e.preventDefault()
+    const to = col.dataset.status
+    S.dragging = null
+    if (to === 'sent') { S.sending = true; S.sendOne = id } // a batch needs a name, like Send
+    else act(call('PATCH', '/' + id, { status: to }))
+    renderAll()
+  })
+  root.addEventListener('dragend', () => {
+    // a drop on a column that does not take it: say why
+    if (S.dragging) { const c = S.comments.find((x) => x.id === S.dragging); toast(c ? `A ${c.status} comment can go to: ${(MOVES[c.status] || []).join(', ') || 'nowhere'}` : 'Cannot move it'); S.dragging = null }
+    renderAll()
   })
   // dragging the area
   root.addEventListener('mousedown', (e) => { if (e.target.closest('[data-pick]')) { drag = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY }; renderPick() } })
@@ -290,6 +324,7 @@
     add: svg('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6M9 10h6"/>'),
     board: svg('<rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="11" rx="1"/><rect x="17" y="3" width="4" height="15" rx="1"/>'),
     x: svg('<path d="M18 6 6 18M6 6l12 12"/>'), trash: svg('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>'),
+    locate: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>'),
     pencil: svg('<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>'), send: svg('<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>'),
     archive: svg('<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/>'),
     down: svg('<path d="m6 9 6 6 6-6"/>'), right: svg('<path d="m9 6 6 6-6 6"/>'),
@@ -328,7 +363,8 @@ button{font:inherit;color:inherit;cursor:pointer}button:disabled{opacity:.4;curs
 .group{display:flex;flex-direction:column;gap:6px}.gh{display:flex;align-items:center;gap:6px;border:0;background:none;padding:4px 2px;font-weight:600;text-align:left}
 .gh span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gh em{font-style:normal;color:var(--mut);font-weight:400}
 .card{background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--c,var(--draft));border-radius:6px;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
-.card[data-act=goto]{cursor:pointer}.card[data-act=goto]:hover{border-color:var(--fg)}
+.card[draggable=true]{cursor:grab}.card.dragging{opacity:.4}.col.over{outline:2px dashed var(--sent);outline-offset:-2px}
+.text.editable{cursor:text;border-radius:3px}.text.editable:hover{background:var(--soft)}
 .card.s-draft{--c:var(--draft)}.card.s-sent{--c:var(--sent)}.card.s-processing{--c:var(--proc)}.card.s-done{--c:var(--done)}.card.s-archive{--c:var(--arch)}
 .text{margin:0;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}.pop .text{-webkit-line-clamp:none}
 .note{margin:0;color:var(--mut);font-size:12px;white-space:pre-wrap}

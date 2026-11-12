@@ -94,10 +94,12 @@ export function add(state, input) {
   return c
 }
 
-/** Edit the text of a draft (or of a comment the person wants to say more about). */
+/** Edit the text of a comment; not while Claude is working on it. */
 export function edit(state, id, text) {
   const c = find(state, id)
   if (!c) throw new Error('no such comment')
+  if (c.status === 'processing') throw new Error('Claude is working on this comment')
+  if (!String(text).trim()) throw new Error('empty comment')
   c.comment = String(text).trim()
   c.updatedAt = now()
   return c
@@ -125,6 +127,25 @@ export function archiveDone(state) {
   const t = now()
   for (const c of done) Object.assign(c, { status: 'archive', updatedAt: t })
   return done
+}
+
+/** The moves a person may make by hand (drag and drop). `processing` belongs to Claude: nothing moves in or out of it. */
+export const MOVES = { draft: ['sent'], sent: ['draft'], done: ['archive', 'draft'], archive: ['done', 'draft'] }
+
+/** Move one comment to another column. To `sent` it needs the name of a batch, like Send. */
+export function move(state, id, to, batch) {
+  const c = find(state, id)
+  if (!c) throw new Error('no such comment')
+  if (!(MOVES[c.status] || []).includes(to)) throw new Error(`a comment cannot go from ${c.status} to ${to} by hand`)
+  const t = now()
+  if (to === 'sent') {
+    const name = String(batch || '').trim()
+    if (!name) throw new Error('a batch needs a name')
+    Object.assign(c, { status: 'sent', batch: name, sentAt: t, updatedAt: t })
+  } else if (to === 'draft') {
+    Object.assign(c, { status: 'draft', batch: undefined, sentAt: undefined, progress: undefined, updatedAt: t })
+  } else Object.assign(c, { status: to, updatedAt: t })
+  return c
 }
 
 /** Claude takes the comments that are `sent`: they become `processing`, at 0 %. */
