@@ -5,7 +5,10 @@
   "type": "module",
   "main": "src/plugin.js",
   "exports": {
-    ".": "./src/plugin.js"
+    ".": {
+      "types": "./src/plugin.d.ts",
+      "default": "./src/plugin.js"
+    }
   },
   "bin": {
     "page-comments": "bin/cli.mjs"
@@ -24,5 +27,6 @@
   },
   "devDependencies": {
     "vite": "^7.3.8"
-  }
+  },
+  "types": "src/plugin.d.ts"
 }
