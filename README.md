@@ -28,8 +28,8 @@ Add `.page-comments` to `.gitignore`. Nothing else: the plugin injects the UI in
 
 Two round buttons at the bottom right:
 
-- **add** (or `Ctrl+C`): drag an area of the page, write the comment, `⌘↵` / `Ctrl+↵` saves it as a **draft**. A comment is a dashed
-  frame with a number on its page; the number opens its card.
+- **add** (or `Ctrl+C`): drag an area of the page, write the comment, then **Save as draft** (`⌘↵` / `Ctrl+↵`) or **Take now**
+  (`⇧⌘↵`): it goes to Claude at once, with no batch. A comment is a dashed frame with a number on its page; the number opens its card.
 - **board**: every comment as a card on a kanban board, one column per status.
 
 | Status | Meaning |
@@ -52,12 +52,18 @@ On a card: a click on its **text** edits it in place (`⌘↵` / blur saves, `Es
 
 | From | To |
 | --- | --- |
-| draft | sent (asks for the batch name, like Send) |
+| draft | sent (one comment: no batch asked) |
 | sent | draft (withdraw it) |
 | done | archive, draft (rework it) |
 | archive | done, draft |
 
 `processing` is Claude's: nothing is dragged into or out of it.
+
+### Threads
+
+Claude's note on `done` is its **reply** on the card, and a card keeps the whole conversation. The **reply** icon opens a box:
+**Reply** only adds your message; **Reply and send to Claude** (`⌘↵` / `Ctrl+↵`) adds it and puts the comment back to `sent`, so Claude
+takes it again and reads the thread. Claude may end with a question; answer it the same way.
 
 ## How Claude is started
 

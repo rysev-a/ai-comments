@@ -17,7 +17,7 @@
   const LS_FOLD = `page-comments:folded:${CONFIG.project}`
 
   /** @type {{comments: any[], agent: string, picking: boolean, board: boolean, open: string|null, sending: boolean, editing: string|null}} */
-  const S = { comments: [], agent: 'idle', error: null, dragging: null, sendOne: null, picking: false, board: false, open: null, sending: false, editing: null }
+  const S = { comments: [], agent: 'idle', error: null, dragging: null, replying: null, allThread: new Set(), picking: false, board: false, open: null, sending: false, editing: null }
   let folded = new Set()
   try { folded = new Set(JSON.parse(localStorage.getItem(LS_FOLD) || '[]')) } catch { /* nothing remembered */ }
   try { S.comments = JSON.parse(localStorage.getItem(LS) || '[]') } catch { /* nothing remembered */ }
@@ -102,7 +102,7 @@
   const lastProgress = new Map()
   function renderBoard() {
     if (!S.board) { $('board').innerHTML = ''; return }
-    if (S.dragging || (S.editing && root.activeElement?.tagName === 'TEXTAREA')) return // do not wipe what is being dragged or typed; it renders at the end
+    if (S.dragging || ((S.editing || S.replying) && root.activeElement?.tagName === 'TEXTAREA')) return // do not wipe what is being dragged or typed; it renders at the end
     const by = (st) => S.comments.filter((c) => c.status === st)
     const drafts = by('draft').length, done = by('done').length
     const agent = S.agent === 'running' ? '<span class="agent on"><i class="pulse"></i>Claude is working</span>' : S.agent === 'off' ? '<span class="agent">no agent: sent comments wait for a session</span>' : '<span class="agent">Claude is idle</span>'
@@ -111,8 +111,8 @@
         <button class="btn primary" data-act="send" ${drafts ? '' : 'disabled'}>${I.send} Send ${drafts || ''}</button>
         <button class="btn" data-act="archive" ${done ? '' : 'disabled'}>${I.archive} Archive ${done || ''}</button>
         <button class="ico" data-act="close" title="Close (Esc)">${I.x}</button></header>
-      ${S.sending ? `<form class="sendbar" data-form="send"><label>${S.sendOne ? 'Name of the batch for this comment' : 'Name of the batch'} <input name="batch" required autofocus value="${esc(defaultBatch())}" maxlength="80" /></label>
-        <button class="btn primary" type="submit">Send ${S.sendOne ? 1 : drafts}</button><button class="btn" type="button" data-act="cancel-send">Cancel</button></form>` : ''}
+      ${S.sending ? `<form class="sendbar" data-form="send"><label>Name of the batch <input name="batch" required autofocus value="${esc(defaultBatch())}" maxlength="80" /></label>
+        <button class="btn primary" type="submit">Send ${drafts}</button><button class="btn" type="button" data-act="cancel-send">Cancel</button></form>` : ''}
       <div class="cols">${COLUMNS.map((st) => `<div class="col" data-status="${st}"><h3 class="h-${st}">${TITLES[st]} <em>${by(st).length}</em></h3><div class="list">${column(st, by(st))}</div></div>`).join('')}</div></section>`
     // the bars grow from where they were: the progress is seen moving
     for (const bar of root.querySelectorAll('.bar i[data-id]')) {
@@ -132,7 +132,7 @@
     if (st === 'draft' || st === 'sent') return list.map((c) => card(c)).join('')
     // processing, done and archive: grouped by the name of the batch, a group folds
     const groups = new Map()
-    for (const c of list) groups.set(c.batch || '(no batch)', [...(groups.get(c.batch || '(no batch)') || []), c])
+    for (const c of list) groups.set(c.batch || 'No batch', [...(groups.get(c.batch || 'No batch') || []), c])
     return [...groups.entries()]
       .sort((a, b) => Math.max(...b[1].map((c) => Date.parse(c.sentAt || c.createdAt))) - Math.max(...a[1].map((c) => Date.parse(c.sentAt || c.createdAt))))
       .map(([name, cs]) => {
@@ -141,15 +141,26 @@
       }).join('')
   }
 
+  /** The conversation on a comment: the owner's words and Claude's answers. An old comment with only a `note` shows it as Claude's answer. */
+  function thread(c, compact) {
+    const msgs = c.thread?.length ? c.thread : c.note ? [{ who: 'claude', text: c.note, at: c.updatedAt }] : []
+    if (!msgs.length) return ''
+    const all = S.allThread.has(c.id) || compact || msgs.length <= 2
+    const shown = all ? msgs : msgs.slice(-2)
+    return `<div class="thread">${!all ? `<button class="more" data-act="thread-all" data-id="${c.id}">${msgs.length - 2} earlier</button>` : ''}${shown.map((m) => `<div class="msg ${m.who}"><b>${m.who === 'claude' ? 'Claude' : 'You'}</b><span>${esc(m.text)}</span></div>`).join('')}</div>`
+  }
+
   function card(c, compact) {
     const editing = S.editing === c.id
     const canEdit = !compact && c.status !== 'processing'
     const canDrag = !compact && !!MOVES[c.status]
     return `<article class="card s-${c.status}" data-id="${c.id}" ${canDrag ? 'draggable="true"' : ''}>
       ${editing ? `<textarea data-edit="${c.id}">${esc(c.comment)}</textarea>` : `<p class="text ${canEdit ? 'editable' : ''}" ${canEdit ? `data-act="edit" data-id="${c.id}" title="Click to edit"` : ''}>${esc(c.comment)}</p>`}
-      ${c.status === 'processing' ? `<div class="bar"><i data-id="${c.id}" data-to="${c.progress ?? 0}"></i><b>${c.progress ?? 0}%</b></div>` : ''}
-      ${c.note ? `<p class="note">${esc(c.note)}</p>` : ''}
+      ${c.status === 'processing' ? `<div class="bar"><i data-id="${c.id}" data-to="${c.progress ?? 0}"></i><b>${c.progress ?? 0}%</b></div>${c.note ? `<p class="note">${esc(c.note)}</p>` : ''}` : thread(c, compact)}
+      ${S.replying === c.id && !compact ? `<div class="reply"><textarea data-reply="${c.id}" placeholder="Reply (⌘↵ / Ctrl+↵ sends to Claude)"></textarea>
+        <div class="row"><button class="btn" data-act="cancel-reply">Cancel</button><button class="btn" data-act="reply-only" data-id="${c.id}">Reply</button><button class="btn primary" data-act="reply-send" data-id="${c.id}">${I.send} Reply and send to Claude</button></div></div>` : ''}
       <footer><span>${esc(c.route)} · ${ago(c.updatedAt || c.createdAt)}</span><span class="acts">
+        ${compact || c.status === 'processing' ? '' : `<button class="ico" data-act="reply" data-id="${c.id}" title="Reply">${I.reply}</button>`}
         ${compact ? '' : `<button class="ico" data-act="goto" data-id="${c.id}" title="Show on the page">${I.locate}</button>`}
         <button class="ico" data-act="delete" data-id="${c.id}" title="Delete">${I.trash}</button></span></footer></article>`
   }
@@ -166,8 +177,8 @@
     const keep = $('draft').querySelector('textarea')?.value ?? ''
     $('draft').innerHTML = `<div class="sel fixed" style="left:${box.left}px;top:${box.top}px;width:${box.right - box.left}px;height:${box.bottom - box.top}px"></div>
       <div class="drafter" style="left:${Math.min(box.left, innerWidth - 310)}px;top:${Math.min(box.bottom + 8, innerHeight - 160)}px">
-        <textarea placeholder="What to change here? (⌘↵ / Ctrl+↵ to save)">${esc(keep)}</textarea>
-        <div class="row"><button class="btn" data-act="cancel-draft">Cancel</button><button class="btn primary" data-act="save-draft">Save as draft</button></div></div>`
+        <textarea placeholder="What to change here? (⌘↵ / Ctrl+↵ saves a draft, +Shift takes it now)">${esc(keep)}</textarea>
+        <div class="row"><button class="btn" data-act="cancel-draft">Cancel</button><button class="btn" data-act="save-draft">Save as draft</button><button class="btn primary" data-act="take-now" title="Send it to Claude now, without a batch">Take now</button></div></div>`
     $('draft').querySelector('textarea').focus()
   }
   function describe(el) {
@@ -186,11 +197,11 @@
     }
     return [...seen].slice(0, 14).map(describe)
   }
-  async function saveDraft() {
+  async function saveDraft(now) {
     const text = $('draft').querySelector('textarea')?.value.trim()
     if (!text || !box) return
     const b = base(), r = box
-    const body = { route: route(), rect: { x: r.left - b.left + b.sl, y: r.top - b.top + b.st, w: r.right - r.left, h: r.bottom - r.top }, viewport: { w: innerWidth, h: innerHeight }, comment: text, elements: under(r) }
+    const body = { route: route(), rect: { x: r.left - b.left + b.sl, y: r.top - b.top + b.st, w: r.right - r.left, h: r.bottom - r.top }, viewport: { w: innerWidth, h: innerHeight }, comment: text, elements: under(r), send: !!now }
     box = null
     renderDraft()
     await act(call('POST', '', body))
@@ -220,18 +231,23 @@
     const id = el.dataset.id || el.closest('[data-id]')?.dataset.id
     switch (el.dataset.act) {
       case 'board': S.board = !S.board; S.sending = false; break
-      case 'close': S.board = false; S.sending = false; S.sendOne = null; break
+      case 'close': S.board = false; S.sending = false; break
       case 'pick': S.picking = !S.picking; box = null; drag = null; break
       case 'open': S.open = S.open === id ? null : id; break
-      case 'send': S.sending = true; S.sendOne = null; break
-      case 'cancel-send': S.sending = false; S.sendOne = null; break
+      case 'send': S.sending = true; break
+      case 'cancel-send': S.sending = false; break
       case 'archive': act(call('POST', '/archive', {})); return
       case 'retry': act(call('POST', '/retry', {})); return
       case 'fold': folded.has(el.dataset.key) ? folded.delete(el.dataset.key) : folded.add(el.dataset.key); try { localStorage.setItem(LS_FOLD, JSON.stringify([...folded])) } catch { /* fine */ } break
       case 'edit': S.editing = id; break
+      case 'reply': S.replying = S.replying === id ? null : id; break
+      case 'cancel-reply': S.replying = null; break
+      case 'thread-all': S.allThread.add(id); break
+      case 'reply-only': case 'reply-send': { const ta = root.querySelector(`textarea[data-reply="${id}"]`); void sendReply(id, ta?.value, el.dataset.act === 'reply-send'); return }
       case 'delete': if (S.open === id) S.open = null; act(call('DELETE', '/' + id, {})); return
       case 'goto': goTo(id); return
-      case 'save-draft': void saveDraft(); return
+      case 'save-draft': void saveDraft(false); return
+      case 'take-now': void saveDraft(true); return
       case 'cancel-draft': box = null; renderDraft(); renderPick(); renderDock(); return
     }
     renderAll()
@@ -240,11 +256,17 @@
     e.preventDefault()
     if (e.target.dataset.form !== 'send') return
     const batch = new FormData(e.target).get('batch')
-    const one = S.sendOne
-    S.sending = false; S.sendOne = null
-    act(one ? call('PATCH', '/' + one, { status: 'sent', batch }) : call('POST', '/send', { batch }))
+    S.sending = false
+    act(call('POST', '/send', { batch }))
     renderAll()
   })
+  async function sendReply(id, text, resend) {
+    text = (text || '').trim()
+    if (!text) return toast('Write a reply first')
+    S.replying = null
+    renderAll()
+    await act(call('POST', `/${id}/reply`, { text, resend }))
+  }
   // leaving the text (or ⌘↵ / Ctrl+↵) saves it, if it changed
   function commitEdit(ta) {
     const id = ta.dataset.edit
@@ -258,7 +280,9 @@
   root.addEventListener('keydown', (e) => {
     if (e.target.dataset?.edit && e.key === 'Escape') { e.stopPropagation(); S.editing = null; renderAll() }
     if (e.target.dataset?.edit && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commitEdit(e.target)
-    if (e.target.closest?.('.drafter') && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void saveDraft()
+    if (e.target.closest?.('.drafter') && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void saveDraft(e.shiftKey)
+    if (e.target.dataset?.reply && e.key === 'Escape') { e.stopPropagation(); S.replying = null; renderAll() }
+    if (e.target.dataset?.reply && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void sendReply(e.target.dataset.reply, e.target.value, true)
   })
   // dragging a card to another column
   const colOf = (e) => e.target.closest?.('.col[data-status]')
@@ -280,8 +304,7 @@
     e.preventDefault()
     const to = col.dataset.status
     S.dragging = null
-    if (to === 'sent') { S.sending = true; S.sendOne = id } // a batch needs a name, like Send
-    else act(call('PATCH', '/' + id, { status: to }))
+    act(call('PATCH', '/' + id, { status: to })) // to Sent too: one comment needs no batch (Send, for all the drafts, asks for one)
     renderAll()
   })
   root.addEventListener('dragend', () => {
@@ -327,6 +350,7 @@
     add: svg('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6M9 10h6"/>'),
     board: svg('<rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="11" rx="1"/><rect x="17" y="3" width="4" height="15" rx="1"/>'),
     x: svg('<path d="M18 6 6 18M6 6l12 12"/>'), trash: svg('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>'),
+    reply: svg('<path d="M9 17 4 12l5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>'),
     locate: svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>'),
     pencil: svg('<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>'), send: svg('<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>'),
     archive: svg('<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/>'),
@@ -367,6 +391,9 @@ button{font:inherit;color:inherit;cursor:pointer}button:disabled{opacity:.4;curs
 .gh span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gh em{font-style:normal;color:var(--mut);font-weight:400}
 .card{background:var(--bg);border:1px solid var(--line);border-left:3px solid var(--c,var(--draft));border-radius:6px;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
 .card[draggable=true]{cursor:grab}.card.dragging{opacity:.4}.col.over{outline:2px dashed var(--sent);outline-offset:-2px}
+.thread{display:flex;flex-direction:column;gap:4px}.msg{display:flex;flex-direction:column;padding:4px 8px;border-radius:6px;font-size:12px;white-space:pre-wrap}.msg b{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
+.msg.claude{background:var(--soft)}.msg.user{background:#3b82f61a;align-self:flex-end;max-width:92%}.more{border:0;background:none;color:var(--mut);text-align:left;padding:0;font-size:11px;text-decoration:underline}
+.reply{display:flex;flex-direction:column;gap:6px}.reply .row{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
 .text.editable{cursor:text;border-radius:3px}.text.editable:hover{background:var(--soft)}
 .card.s-draft{--c:var(--draft)}.card.s-sent{--c:var(--sent)}.card.s-processing{--c:var(--proc)}.card.s-done{--c:var(--done)}.card.s-archive{--c:var(--arch)}
 .text{margin:0;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}.pop .text{-webkit-line-clamp:none}

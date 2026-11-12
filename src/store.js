@@ -14,6 +14,7 @@ export const STATUSES = ['draft', 'sent', 'processing', 'done', 'archive']
  *   comment: string, elements: string[],
  *   status: 'draft' | 'sent' | 'processing' | 'done' | 'archive',
  *   batch?: string, progress?: number, note?: string,
+ *   thread?: { who: 'user' | 'claude', text: string, at: string }[],
  *   createdAt: string, updatedAt: string, sentAt?: string,
  * }} Comment
  * @typedef {{ version: 1, comments: Comment[] }} State
@@ -76,7 +77,7 @@ const now = () => new Date().toISOString()
 const find = (state, id) => state.comments.find((c) => c.id === id)
 
 // --- the changes ----------------------------------------------------------------------------------------------------------------------
-/** A new comment is a draft. */
+/** A new comment is a draft; with `send` it goes straight to Claude ("take now"), with no batch. */
 export function add(state, input) {
   const c = {
     id: input.id || newId(),
@@ -90,7 +91,22 @@ export function add(state, input) {
     updatedAt: now(),
   }
   if (!c.comment) throw new Error('empty comment')
+  if (input.send) Object.assign(c, { status: 'sent', sentAt: c.createdAt })
   state.comments.push(c)
+  return c
+}
+
+/** A message in the thread of a comment. The owner's message may send the comment to Claude again (`resend`); Claude's comes from `finish`. */
+export function reply(state, id, who, text, resend) {
+  const c = find(state, id)
+  if (!c) throw new Error('no such comment')
+  const msg = String(text || '').trim()
+  if (!msg) throw new Error('empty reply')
+  if (c.status === 'processing') throw new Error('Claude is working on this comment: reply when it is done')
+  const t = now()
+  c.thread = [...(c.thread || []), { who, text: msg, at: t }]
+  c.updatedAt = t
+  if (who === 'user' && resend) Object.assign(c, { status: 'sent', sentAt: t, progress: undefined, note: undefined })
   return c
 }
 
@@ -139,9 +155,9 @@ export function move(state, id, to, batch) {
   if (!(MOVES[c.status] || []).includes(to)) throw new Error(`a comment cannot go from ${c.status} to ${to} by hand`)
   const t = now()
   if (to === 'sent') {
-    const name = String(batch || '').trim()
-    if (!name) throw new Error('a batch needs a name')
-    Object.assign(c, { status: 'sent', batch: name, sentAt: t, updatedAt: t })
+    // moving one comment does not ask for a batch (Send, for all drafts, does): it may have none
+    const name = String(batch || '').trim() || c.batch
+    Object.assign(c, { status: 'sent', batch: name || undefined, sentAt: t, updatedAt: t })
   } else if (to === 'draft') {
     Object.assign(c, { status: 'draft', batch: undefined, sentAt: undefined, progress: undefined, updatedAt: t })
   } else Object.assign(c, { status: to, updatedAt: t })
@@ -172,8 +188,12 @@ export function finish(state, id, note) {
   const c = find(state, id)
   if (!c) throw new Error('no such comment')
   if (c.status !== 'processing') throw new Error(`the comment is ${c.status}, not processing`)
-  Object.assign(c, { status: 'done', progress: 100, updatedAt: now() })
-  if (note !== undefined) c.note = String(note)
+  const t = now()
+  Object.assign(c, { status: 'done', progress: 100, updatedAt: t })
+  if (note !== undefined) {
+    c.note = String(note)
+    if (c.note.trim()) c.thread = [...(c.thread || []), { who: 'claude', text: c.note, at: t }] // Claude's answer, in the conversation
+  }
   return c
 }
 

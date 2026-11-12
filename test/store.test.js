@@ -85,7 +85,9 @@ test('moving by hand: only the allowed moves; sent needs a batch; processing is 
   const id = s.mutate(f, (st) => s.add(st, input('x'))).id
   const status = () => s.read(f).state.comments[0].status
   assert.throws(() => s.mutate(f, (st) => s.move(st, id, 'done')), /cannot go from draft to done/)
-  assert.throws(() => s.mutate(f, (st) => s.move(st, id, 'sent', ' ')), /batch/)
+  s.mutate(f, (st) => s.move(st, id, 'sent')) // one comment needs no batch
+  assert.deepEqual([status(), s.read(f).state.comments[0].batch], ['sent', undefined])
+  s.mutate(f, (st) => s.move(st, id, 'draft'))
   s.mutate(f, (st) => s.move(st, id, 'sent', 'b1'))
   assert.deepEqual([status(), s.read(f).state.comments[0].batch], ['sent', 'b1'])
   s.mutate(f, (st) => s.move(st, id, 'draft')) // withdraw it
@@ -108,4 +110,22 @@ test('releasing is only for what that agent run was started for', () => {
   s.mutate(f, (st) => s.send(st, 'x')); s.mutate(f, (st) => s.take(st))
   s.mutate(f, (st) => s.release(st, 'stopped', new Set([a]))) // another session works on b
   assert.deepEqual(s.read(f).state.comments.map((c) => c.status), ['draft', 'processing'])
+})
+
+test('a thread: Claude answers with done, the owner replies and sends it again, \"take now\" skips the draft', () => {
+  const f = tmp()
+  const id = s.mutate(f, (st) => s.add(st, { ...input('make it blue'), send: true })).id
+  let c = s.read(f).state.comments[0]
+  assert.deepEqual([c.status, c.batch], ['sent', undefined]) // take now: sent at once, no batch
+  s.mutate(f, (st) => s.take(st))
+  assert.throws(() => s.mutate(f, (st) => s.reply(st, id, 'user', 'wait')), /working on/)
+  s.mutate(f, (st) => s.finish(st, id, 'Which blue?'))
+  c = s.read(f).state.comments[0]
+  assert.deepEqual(c.thread.map((m) => [m.who, m.text]), [['claude', 'Which blue?']])
+  s.mutate(f, (st) => s.reply(st, id, 'user', 'the sky one')) // a reply alone does not send it
+  assert.equal(s.read(f).state.comments[0].status, 'done')
+  s.mutate(f, (st) => s.reply(st, id, 'user', 'sky blue, please', true)) // reply and send to Claude
+  c = s.read(f).state.comments[0]
+  assert.deepEqual([c.status, c.thread.length, c.note], ['sent', 3, undefined])
+  assert.throws(() => s.mutate(f, (st) => s.reply(st, id, 'user', '  ')), /empty/)
 })

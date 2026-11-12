@@ -123,7 +123,6 @@ test('dragging a draft to Sent (PATCH with a batch) starts the agent like Send d
   const t = await start('ok')
   try {
     const id = (await t.add('one')).json.id
-    assert.equal((await t.api('PATCH', '/' + id, { status: 'sent' })).status, 400, 'a batch needs a name')
     assert.equal((await t.api('PATCH', '/' + id, { status: 'done' })).status, 400, 'not by hand')
     assert.equal((await t.api('PATCH', '/' + id, { status: 'sent', batch: 'dragged' })).status, 200)
     await wait(() => s.read(t.file).state.comments[0].status === 'done')
@@ -131,5 +130,20 @@ test('dragging a draft to Sent (PATCH with a batch) starts the agent like Send d
     assert.equal((await t.api('PATCH', '/' + id, { status: 'archive' })).status, 200)
     assert.equal((await t.api('PATCH', '/' + id, { comment: 'edited in place' })).status, 200)
     assert.equal(s.read(t.file).state.comments[0].comment, 'edited in place')
+  } finally { await t.server.close() }
+})
+
+test('"take now" and "reply and send" start the agent, with no batch', async () => {
+  const t = await start('ok')
+  try {
+    const body = { route: '/', rect: { x: 0, y: 0, w: 5, h: 5 }, viewport: { w: 9, h: 9 }, comment: 'now', elements: [], send: true }
+    const id = (await t.api('POST', '', body)).json.id
+    await wait(() => s.read(t.file).state.comments[0].status === 'done')
+    assert.equal(s.read(t.file).state.comments[0].batch, undefined)
+    assert.equal((await t.api('POST', `/${id}/reply`, { text: ' ' })).status, 400)
+    await t.api('POST', `/${id}/reply`, { text: 'one more thing', resend: true })
+    await wait(() => t.runs() === 2 && s.read(t.file).state.comments[0].status === 'done')
+    const c = s.read(t.file).state.comments[0]
+    assert.deepEqual(c.thread.map((m) => m.who), ['claude', 'user', 'claude'])
   } finally { await t.server.close() }
 })

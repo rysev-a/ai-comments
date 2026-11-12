@@ -36,7 +36,10 @@ export function defaultPrompt({ cli, root }) {
 
 1. Take the comments: run \`${c} take\`. It prints them as JSON and marks them "processing".
    Each one has: "comment" (what to change), "route" (the page, with the #anchor), "rect" and "viewport" (the area the owner selected,
-   in pixels), "elements" (tags, classes and text under that area: search the source for them) and "batch".
+   in pixels), "elements" (tags, classes and text under that area: search the source for them) and "batch" (it may have none).
+   A comment may have a "thread": the conversation so far (who is "user" or "claude"). If the owner answered and sent it again, read
+   the thread and go on from their last message. The note you give to \`done\` is shown to the owner as your reply in that thread;
+   if you need an answer from them, finish with the question: they can reply and send it again.
 2. Work one comment at a time, in order. For each: find the code, make a short plan of 3 to 6 steps, and after every finished step run
    \`${c} progress <id> <percent> "<what you are doing next>"\`, where percent = finished steps / all steps * 100 (never 100).
 3. When the change is made, run \`${c} done <id> "<one or two lines: what changed and where>"\`.
@@ -187,7 +190,13 @@ export function pageComments(options = {}) {
           const b = await body(req)
           const id = url.pathname.slice(1)
           let result
-          if (req.method === 'POST' && url.pathname === '/') result = store.mutate(file, (s) => store.add(s, b))
+          if (req.method === 'POST' && url.pathname === '/') {
+            result = store.mutate(file, (s) => store.add(s, b))
+            if (b.send) tried.delete(result.id) // "take now"
+          } else if (req.method === 'POST' && /^\/[^/]+\/reply$/.test(url.pathname)) {
+            result = store.mutate(file, (s) => store.reply(s, url.pathname.split('/')[1], 'user', b.text, !!b.resend))
+            if (b.resend) tried.delete(result.id)
+          }
           else if (req.method === 'POST' && url.pathname === '/send') {
             result = store.mutate(file, (s) => store.send(s, b.batch))
             for (const c of result) tried.delete(c.id)
