@@ -56,13 +56,14 @@ export function pageComments(options = {}) {
   /** @type {Set<import('node:http').ServerResponse>} */
   const clients = new Set()
   let child = null
+  let lastError = null // why the last agent run left comments untouched (shown on the board)
   const tried = new Set() // `sent` comments that an agent run left untouched: not started again until something new is sent
   let log = (m) => console.log(`[page-comments] ${m}`)
   let timer = null
 
   const snapshot = () => {
     const { state, exists } = store.read(file)
-    return { comments: state.comments, exists, agent: child ? 'running' : agentOpts ? 'idle' : 'off' }
+    return { comments: state.comments, exists, agent: child ? 'running' : agentOpts ? 'idle' : 'off', error: child ? null : lastError }
   }
   const push = () => {
     const data = `data: ${JSON.stringify(snapshot())}\n\n`
@@ -80,7 +81,9 @@ export function pageComments(options = {}) {
     const args = (agentOpts.args ?? ((x) => ['-p', x.prompt, ...(agentOpts.model ? ['--model', agentOpts.model] : []), '--permission-mode', 'acceptEdits', '--allowedTools', `Bash(node ${x.cli}:*)`]))(ctx)
     const logFile = path.join(path.dirname(file), 'agent.log')
     fs.mkdirSync(path.dirname(file), { recursive: true })
+    const logFrom = fs.existsSync(logFile) ? fs.statSync(logFile).size : 0
     const out = fs.openSync(logFile, 'a')
+    lastError = null
     log(`${waiting.length} comment(s) sent: starting ${command}`)
     const p = spawn(command, args, { cwd: root, env: { ...process.env, ...agentOpts.env, PAGE_COMMENTS_FILE: file }, stdio: ['ignore', out, out] })
     child = p
@@ -90,7 +93,12 @@ export function pageComments(options = {}) {
       fs.closeSync(out)
       // whatever the run left: still processing → back to draft (the person decides); still sent → remembered, not started again
       const released = store.mutate(file, (s) => store.release(s, `The agent stopped before it finished (${why}).`))
-      for (const c of store.read(file).state.comments) if (c.status === 'sent') tried.add(c.id)
+      let stillSent = 0
+      for (const c of store.read(file).state.comments) if (c.status === 'sent') { tried.add(c.id); stillSent++ }
+      if (stillSent || released.length) {
+        const text = fs.readFileSync(logFile, 'utf8').slice(logFrom).trim().split('\n').filter(Boolean).slice(-3).join(' ')
+        lastError = (text || `the agent stopped (${why}) and left the comments untouched`).slice(0, 400)
+      }
       if (released.length) log(`${released.length} comment(s) were not finished: back to draft`)
       log(`agent stopped (${why}); log: ${logFile}`)
       push()
@@ -182,6 +190,11 @@ export function pageComments(options = {}) {
           else if (req.method === 'POST' && url.pathname === '/send') {
             result = store.mutate(file, (s) => store.send(s, b.batch))
             for (const c of result) tried.delete(c.id)
+          } else if (req.method === 'POST' && url.pathname === '/retry') {
+            tried.clear()
+            lastError = null
+            maybeRun()
+            result = { ok: true }
           } else if (req.method === 'POST' && url.pathname === '/restore') {
             // the file was lost, the page still has its copy: put it back (never over a file that exists)
             if (store.read(file).exists) throw new Error('the file exists')

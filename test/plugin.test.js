@@ -80,6 +80,11 @@ test('an agent that takes nothing is not started again in a loop', async () => {
     await new Promise((r) => setTimeout(r, 600))
     assert.equal(t.runs(), 1)
     assert.equal(s.read(t.file).state.comments[0].status, 'sent')
+    // the board is told why, and Retry starts it again
+    const snap = (await t.api('GET')).json
+    assert.match(snap.error, /usage limit/)
+    await t.api('POST', '/retry', {})
+    await wait(() => t.runs() === 2)
   } finally { await t.server.close() }
 })
 

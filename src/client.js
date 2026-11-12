@@ -15,7 +15,7 @@
   const LS_FOLD = `page-comments:folded:${CONFIG.project}`
 
   /** @type {{comments: any[], agent: string, picking: boolean, board: boolean, open: string|null, sending: boolean, editing: string|null}} */
-  const S = { comments: [], agent: 'idle', picking: false, board: false, open: null, sending: false, editing: null }
+  const S = { comments: [], agent: 'idle', error: null, picking: false, board: false, open: null, sending: false, editing: null }
   let folded = new Set()
   try { folded = new Set(JSON.parse(localStorage.getItem(LS_FOLD) || '[]')) } catch { /* nothing remembered */ }
   try { S.comments = JSON.parse(localStorage.getItem(LS) || '[]') } catch { /* nothing remembered */ }
@@ -48,6 +48,7 @@
     }
     S.comments = snap.comments
     S.agent = snap.agent
+    S.error = snap.error
     mirror()
     renderAll()
   }
@@ -102,9 +103,9 @@
     if (S.editing && root.activeElement?.tagName === 'TEXTAREA') return // do not wipe what is being typed; it renders on blur
     const by = (st) => S.comments.filter((c) => c.status === st)
     const drafts = by('draft').length, done = by('done').length
-    const agent = S.agent === 'running' ? '<span class="agent on"><i class="pulse"></i>Claude is working</span>' : S.agent === 'off' ? '<span class="agent">no agent</span>' : '<span class="agent">Claude is idle</span>'
+    const agent = S.agent === 'running' ? '<span class="agent on"><i class="pulse"></i>Claude is working</span>' : S.agent === 'off' ? '<span class="agent">no agent: sent comments wait for a session</span>' : '<span class="agent">Claude is idle</span>'
     $('board').innerHTML = `<div class="veil" data-act="close"></div><section class="board" role="dialog" aria-label="Comments">
-      <header><strong>Comments</strong>${agent}<span class="grow"></span>
+      <header><strong>Comments</strong>${agent}<span class="grow"></span>${S.error ? `<span class="agent err" title="${esc(S.error)}">${esc(S.error.slice(0, 90))}</span><button class="btn" data-act="retry">Retry</button>` : ''}
         <button class="btn primary" data-act="send" ${drafts ? '' : 'disabled'}>${I.send} Send ${drafts || ''}</button>
         <button class="btn" data-act="archive" ${done ? '' : 'disabled'}>${I.archive} Archive ${done || ''}</button>
         <button class="ico" data-act="close" title="Close (Esc)">${I.x}</button></header>
@@ -221,6 +222,7 @@
       case 'send': S.sending = true; break
       case 'cancel-send': S.sending = false; break
       case 'archive': act(call('POST', '/archive', {})); return
+      case 'retry': act(call('POST', '/retry', {})); return
       case 'fold': folded.has(el.dataset.key) ? folded.delete(el.dataset.key) : folded.add(el.dataset.key); try { localStorage.setItem(LS_FOLD, JSON.stringify([...folded])) } catch { /* fine */ } break
       case 'edit': S.editing = id; break
       case 'delete': if (S.open === id) S.open = null; act(call('DELETE', '/' + id, {})); return
@@ -310,7 +312,7 @@ button{font:inherit;color:inherit;cursor:pointer}button:disabled{opacity:.4;curs
 .veil{position:fixed;inset:0;z-index:2147483100;background:#0006}
 .board{position:fixed;inset:16px 16px 60px;z-index:2147483150;display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 40px #0005}
 .board header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
-.grow{flex:1}.agent{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:12px}.agent.on{color:var(--fg)}
+.grow{flex:1}.agent{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:12px}.agent.on{color:var(--fg)}.agent.err{color:#dc2626;max-width:46ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
 .btn.primary{background:var(--pri);color:var(--onpri);border-color:var(--pri)}
 .ico{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:1px solid var(--line);border-radius:5px;background:var(--bg)}

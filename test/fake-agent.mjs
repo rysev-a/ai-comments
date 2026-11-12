@@ -8,7 +8,10 @@ const run = (...a) => JSON.parse(execFileSync('node', [cli, ...a], { encoding: '
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms * (Number(process.env.FAKE_AGENT_SLOW) || 1))) // Claude is slower than the page refresh
 const mode = process.env.FAKE_AGENT || 'ok'
 fs.appendFileSync(process.env.FAKE_AGENT_LOG, 'run\n')
-if (mode === 'idle') process.exit(1) // starts and takes nothing
+if (mode === 'idle') {
+  console.error('You have reached your usage limit.') // what real claude prints when it cannot start
+  process.exit(1) // starts and takes nothing
+}
 for (const c of run('take')) {
   await sleep(150)
   run('progress', c.id, '40', 'step 2 of 5')
