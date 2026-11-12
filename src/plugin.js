@@ -75,6 +75,7 @@ export function pageComments(options = {}) {
     if (!agentOpts || child) return
     const waiting = store.read(file).state.comments.filter((c) => c.status === 'sent' && !tried.has(c.id))
     if (!waiting.length) return
+    const mine = new Set(waiting.map((c) => c.id)) // what this run was started for: only these are its to release
     const prompt = (agentOpts.prompt ?? defaultPrompt)({ cli: CLI, file, root })
     const ctx = { prompt, cli: CLI, file, root }
     const command = agentOpts.command ?? 'claude'
@@ -92,7 +93,7 @@ export function pageComments(options = {}) {
       child = null
       fs.closeSync(out)
       // whatever the run left: still processing → back to draft (the person decides); still sent → remembered, not started again
-      const released = store.mutate(file, (s) => store.release(s, `The agent stopped before it finished (${why}).`))
+      const released = store.mutate(file, (s) => store.release(s, `The agent stopped before it finished (${why}).`, mine))
       let stillSent = 0
       for (const c of store.read(file).state.comments) if (c.status === 'sent') { tried.add(c.id); stillSent++ }
       if (stillSent || released.length) {

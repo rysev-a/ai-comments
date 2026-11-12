@@ -177,9 +177,10 @@ export function finish(state, id, note) {
   return c
 }
 
-/** The agent stopped with comments still `processing`: back to draft, so the person decides, and nothing loops. */
-export function release(state, reason) {
-  const back = state.comments.filter((c) => c.status === 'processing')
+/** The agent stopped with comments still `processing`: back to draft, so the person decides, and nothing loops.
+ *  Only the comments that run was started for (`only`): another session may be working on others. */
+export function release(state, reason, only) {
+  const back = state.comments.filter((c) => c.status === 'processing' && (!only || only.has(c.id)))
   for (const c of back) Object.assign(c, { status: 'draft', progress: undefined, note: reason, updatedAt: now() })
   return back
 }

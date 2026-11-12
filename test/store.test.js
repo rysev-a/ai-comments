@@ -101,3 +101,11 @@ test('moving by hand: only the allowed moves; sent needs a batch; processing is 
   s.mutate(f, (st) => s.edit(st, id, 'changed text'))
   assert.equal(s.read(f).state.comments[0].comment, 'changed text')
 })
+
+test('releasing is only for what that agent run was started for', () => {
+  const f = tmp()
+  const [a, b] = s.mutate(f, (st) => [s.add(st, input('a')).id, s.add(st, input('b')).id])
+  s.mutate(f, (st) => s.send(st, 'x')); s.mutate(f, (st) => s.take(st))
+  s.mutate(f, (st) => s.release(st, 'stopped', new Set([a]))) // another session works on b
+  assert.deepEqual(s.read(f).state.comments.map((c) => c.status), ['draft', 'processing'])
+})
