@@ -245,16 +245,19 @@
     act(one ? call('PATCH', '/' + one, { status: 'sent', batch }) : call('POST', '/send', { batch }))
     renderAll()
   })
-  root.addEventListener('focusout', (e) => {
-    const id = e.target.dataset?.edit; if (!id) return
-    const text = e.target.value.trim()
+  // leaving the text (or ⌘↵ / Ctrl+↵) saves it, if it changed
+  function commitEdit(ta) {
+    const id = ta.dataset.edit
+    if (S.editing !== id) return // already saved
+    const text = ta.value.trim()
     S.editing = null
     if (text && text !== S.comments.find((c) => c.id === id)?.comment) act(call('PATCH', '/' + id, { comment: text }))
     renderAll()
-  })
+  }
+  root.addEventListener('focusout', (e) => { if (e.target.dataset?.edit) commitEdit(e.target) })
   root.addEventListener('keydown', (e) => {
     if (e.target.dataset?.edit && e.key === 'Escape') { e.stopPropagation(); S.editing = null; renderAll() }
-    if (e.target.dataset?.edit && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.target.blur()
+    if (e.target.dataset?.edit && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commitEdit(e.target)
     if (e.target.closest?.('.drafter') && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void saveDraft()
   })
   // dragging a card to another column
