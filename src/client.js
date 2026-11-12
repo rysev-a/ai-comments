@@ -78,6 +78,7 @@
     return { left: r.left, top: r.top, sl: sc.scrollLeft, st: sc.scrollTop }
   }
   function renderFrames() {
+    if (S.replying && root.activeElement?.tagName === 'TEXTAREA') return // do not wipe a reply that is being typed in a popover
     const b = base()
     const here = S.comments.filter((c) => c.route === route() && c.status !== 'archive')
     $('frames').innerHTML = here.map((c, i) => {
@@ -157,10 +158,10 @@
     return `<article class="card s-${c.status}" data-id="${c.id}" ${canDrag ? 'draggable="true"' : ''}>
       ${editing ? `<textarea data-edit="${c.id}">${esc(c.comment)}</textarea>` : `<p class="text ${canEdit ? 'editable' : ''}" ${canEdit ? `data-act="edit" data-id="${c.id}" title="Click to edit"` : ''}>${esc(c.comment)}</p>`}
       ${c.status === 'processing' ? `<div class="bar"><i data-id="${c.id}" data-to="${c.progress ?? 0}"></i><b>${c.progress ?? 0}%</b></div>${c.note ? `<p class="note">${esc(c.note)}</p>` : ''}` : thread(c, compact)}
-      ${S.replying === c.id && !compact ? `<div class="reply"><textarea data-reply="${c.id}" placeholder="Reply (⌘↵ / Ctrl+↵ sends to Claude)"></textarea>
+      ${S.replying === c.id ? `<div class="reply"><textarea data-reply="${c.id}" placeholder="Reply (⌘↵ / Ctrl+↵ sends to Claude)"></textarea>
         <div class="row"><button class="btn" data-act="cancel-reply">Cancel</button><button class="btn" data-act="reply-only" data-id="${c.id}">Reply</button><button class="btn primary" data-act="reply-send" data-id="${c.id}">${I.send} Reply and send to Claude</button></div></div>` : ''}
       <footer><span>${esc(c.route)} · ${ago(c.updatedAt || c.createdAt)}</span><span class="acts">
-        ${compact || c.status === 'processing' ? '' : `<button class="ico" data-act="reply" data-id="${c.id}" title="Reply">${I.reply}</button>`}
+        ${c.status === 'processing' ? '' : `<button class="ico" data-act="reply" data-id="${c.id}" title="Reply">${I.reply}</button>`}
         ${compact ? '' : `<button class="ico" data-act="goto" data-id="${c.id}" title="Show on the page">${I.locate}</button>`}
         <button class="ico" data-act="delete" data-id="${c.id}" title="Delete">${I.trash}</button></span></footer></article>`
   }
@@ -342,7 +343,11 @@
   let at = route()
   setInterval(() => { if (route() !== at) { at = route(); renderFrames() } else if (S.board || S.open) { /* the "n min ago" */ } }, 500)
 
-  function renderAll() { renderFrames(); renderDock(); renderBoard(); renderPick(); if (box && !$('draft').firstChild) renderDraft() }
+  function renderAll() {
+    renderFrames(); renderDock(); renderBoard(); renderPick(); if (box && !$('draft').firstChild) renderDraft()
+    const ta = S.replying && root.querySelector(`textarea[data-reply="${S.replying}"]`)
+    if (ta && root.activeElement !== ta) ta.focus() // a reply was just opened (in the board or in a popover on the page)
+  }
 
   // --- look ---------------------------------------------------------------------------------------------------------------------------
   const svg = (d) => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`
