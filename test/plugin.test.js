@@ -24,8 +24,8 @@ async function start(mode) {
   })
   await server.listen()
   const url = `http://127.0.0.1:${server.config.server.port ?? server.httpServer.address().port}`
-  const file = path.join(root, '.page-comments/comments.json')
-  const api = (method, p = '', body, h = {}) => fetch(url + '/__page-comments' + p, { method, headers: { 'content-type': 'application/json', ...h }, body: body && JSON.stringify(body) }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }))
+  const file = path.join(root, '.ai-comments/comments.json')
+  const api = (method, p = '', body, h = {}) => fetch(url + '/__ai-comments' + p, { method, headers: { 'content-type': 'application/json', ...h }, body: body && JSON.stringify(body) }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }))
   const add = (comment) => api('POST', '', { route: '/', rect: { x: 0, y: 0, w: 5, h: 5 }, viewport: { w: 9, h: 9 }, comment, elements: [] })
   const runs = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).length : 0)
   return { server, url, file, api, add, runs }
@@ -50,7 +50,7 @@ test('send → the listener starts the agent → processing with progress → do
 test('the page is told of every change live (server-sent events)', async () => {
   const t = await start('ok')
   try {
-    const res = await fetch(t.url + '/__page-comments/events')
+    const res = await fetch(t.url + '/__ai-comments/events')
     const reader = res.body.getReader()
     const seen = []
     ;(async () => { const dec = new TextDecoder(); for (;;) { const { value, done } = await reader.read(); if (done) return; for (const m of dec.decode(value).split('\n\n')) if (m.startsWith('data: ')) seen.push(JSON.parse(m.slice(6))) } })()
@@ -91,7 +91,7 @@ test('an agent that takes nothing is not started again in a loop', async () => {
 test('comments sent before the server started are taken when it starts', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pcv-'))
   fs.writeFileSync(path.join(root, 'index.html'), '<main>hi</main>')
-  const file = path.join(root, '.page-comments/comments.json')
+  const file = path.join(root, '.ai-comments/comments.json')
   s.mutate(file, (st) => { s.add(st, { route: '/', rect: { x: 0, y: 0, w: 5, h: 5 }, viewport: { w: 1, h: 1 }, comment: 'old' }); s.send(st, 'early') })
   const log = path.join(root, 'runs.txt')
   const server = await createServer({ root, logLevel: 'silent', server: { port: 0, host: '127.0.0.1' }, plugins: [pageComments({ agent: { command: 'node', args: () => [path.join(here, 'fake-agent.mjs')], env: { FAKE_AGENT: 'ok', FAKE_AGENT_LOG: log } } })] })
@@ -104,11 +104,11 @@ test('comments sent before the server started are taken when it starts', async (
 test('only the page of this server may change comments; a lost file comes back from the copy of the page', async () => {
   const t = await start('ok')
   try {
-    assert.equal((await fetch(t.url + '/__page-comments', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' })).status, 415)
+    assert.equal((await fetch(t.url + '/__ai-comments', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' })).status, 415)
     assert.equal((await t.api('POST', '', {}, { origin: 'http://evil.example' })).status, 403)
     const html = await (await fetch(t.url + '/')).text()
-    assert.match(html, /__page-comments\/client\.js/)
-    const js = await (await fetch(t.url + '/__page-comments/client.js')).text()
+    assert.match(html, /__ai-comments\/client\.js/)
+    const js = await (await fetch(t.url + '/__ai-comments/client.js')).text()
     assert.match(js, /^const CONFIG = /)
 
     const keep = { id: 'abc', status: 'done', route: '/', rect: { x: 0, y: 0, w: 1, h: 1 }, comment: 'kept', createdAt: 'x', updatedAt: 'x' }

@@ -1,7 +1,7 @@
 {
-  "name": "claude-page-comments",
+  "name": "ai-comments",
   "version": "0.1.0",
-  "description": "Review comments on a web page, worked off by Claude. A tiny Vite dev-server plugin.",
+  "description": "Review comments on a web page, worked off by Claude or by an agent outside the dev server. A tiny Vite dev-server plugin.",
   "type": "module",
   "main": "src/plugin.js",
   "exports": {
@@ -11,7 +11,7 @@
     }
   },
   "bin": {
-    "page-comments": "bin/cli.mjs"
+    "ai-comments": "bin/cli.mjs"
   },
   "files": [
     "src",

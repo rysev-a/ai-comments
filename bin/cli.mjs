@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // What Claude calls. Every command prints JSON and changes the same file the page shows, so the board updates live.
-//   page-comments list [status]        the comments (of one status)
-//   page-comments take                 `sent` → `processing`; prints what was taken
-//   page-comments progress <id> <0-100> [note]
-//   page-comments done <id> [note]
-//   page-comments watch                prints one line each time comments are sent (for a session that works them off: Monitor)
-// The file: $PAGE_COMMENTS_FILE, or ./.page-comments/comments.json
+//   ai-comments list [status]        the comments (of one status)
+//   ai-comments take                 `sent` → `processing`; prints what was taken
+//   ai-comments progress <id> <0-100> [note]
+//   ai-comments done <id> [note]
+//   ai-comments watch                prints one line each time comments are sent (for a session that works them off: Monitor)
+// The file: $AI_COMMENTS_FILE, or ./.ai-comments/comments.json
 import path from 'node:path'
 import * as store from '../src/store.js'
 
-const file = path.resolve(process.env.PAGE_COMMENTS_FILE || '.page-comments/comments.json')
+const file = path.resolve(process.env.AI_COMMENTS_FILE || '.ai-comments/comments.json')
 const [cmd, ...a] = process.argv.slice(2)
 const out = (x) => console.log(JSON.stringify(x, null, 2))
 const fail = (m) => {
@@ -31,7 +31,7 @@ try {
       if (fresh.length) console.log(`${fresh.length} comment(s) sent${fresh[0].batch ? ` (batch: ${fresh[0].batch})` : ''}: run \`node ${new URL(import.meta.url).pathname} take\``)
       await new Promise((r) => setTimeout(r, 1000))
     }
-  } else fail('usage: page-comments list [status] | take | watch | progress <id> <0-100> [note] | done <id> [note]')
+  } else fail('usage: ai-comments list [status] | take | watch | progress <id> <0-100> [note] | done <id> [note]')
 } catch (e) {
   fail(e.message)
 }
