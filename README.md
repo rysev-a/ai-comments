@@ -17,9 +17,9 @@ npm i -D github:rysev-a/ai-comments
 
 ```js
 // vite.config.js
-import aiComments from "ai-comments";
+import pageComments from 'ai-comments'
 
-export default { plugins: [aiComments()] };
+export default { plugins: [pageComments()] }
 ```
 
 Add `.ai-comments` to `.gitignore`. Nothing else: the plugin injects the UI into every page of the dev server.
@@ -32,13 +32,13 @@ Two round buttons at the bottom right:
   (`⇧⌘↵`): it goes to Claude at once, with no batch. A comment is a dashed frame with a number on its page; the number opens its card.
 - **board**: every comment as a card on a kanban board, one column per status.
 
-| Status       | Meaning                                                     |
-| ------------ | ----------------------------------------------------------- |
-| `draft`      | written, not sent yet                                       |
-| `sent`       | sent to Claude, waiting to be taken                         |
+| Status | Meaning |
+| --- | --- |
+| `draft` | written, not sent yet |
+| `sent` | sent to Claude, waiting to be taken |
 | `processing` | Claude took it; the card shows a percentage that moves live |
-| `done`       | finished, with Claude's note on what changed                |
-| `archive`    | filed away                                                  |
+| `done` | finished, with Claude's note on what changed |
+| `archive` | filed away |
 
 Two controls on the board:
 
@@ -50,12 +50,12 @@ Two controls on the board:
 On a card: a click on its **text** edits it in place (`⌘↵` / blur saves, `Esc` cancels; not while Claude works on it); the
 **locate** icon goes to its page, scrolls to the frame and opens it. **Drag** a card to another column:
 
-| From    | To                                 |
-| ------- | ---------------------------------- |
-| draft   | sent (one comment: no batch asked) |
-| sent    | draft (withdraw it)                |
-| done    | archive, draft (rework it)         |
-| archive | done, draft                        |
+| From | To |
+| --- | --- |
+| draft | sent (one comment: no batch asked) |
+| sent | draft (withdraw it) |
+| done | archive, draft (rework it) |
+| archive | done, draft |
 
 `processing` is Claude's: nothing is dragged into or out of it.
 
@@ -77,7 +77,6 @@ Two ways to work a batch off:
   ```
 
   in the project root.
-
 - **`'external'`.** `agent: 'external'` starts nothing: the sent comments wait for an agent outside this process — the Zed agent
   woken by a watcher script, `claude -p` on another machine (a dev server in a container has no claude and no credentials), a
   person. The board and the file work the same; whoever takes the batch uses the CLI below.
@@ -104,18 +103,17 @@ ai-comments done <id> [note]              processing → done
 ## Options
 
 ```js
-aiComments({
-  file: ".ai-comments/comments.json",
-  scroller: "main", // the element that scrolls your page; comments are placed inside it (falls back to the document)
-  agent: {
-    // or `false`: no agent, the board is only a list, or `'external'`: an agent outside works it
-    command: "claude",
-    model: "sonnet", // optional
-    prompt: ({ cli, file, root }) => "…",
-    args: ({ prompt, cli }) => ["-p", prompt /* … */],
+pageComments({
+  file: '.ai-comments/comments.json',
+  scroller: 'main',              // the element that scrolls your page; comments are placed inside it (falls back to the document)
+  agent: {                       // or `false`: no agent, the board is only a list, or `'external'`: an agent outside works it
+    command: 'claude',
+    model: 'sonnet',             // optional
+    prompt: ({ cli, file, root }) => '…',
+    args: ({ prompt, cli }) => ['-p', prompt, /* … */],
     env: {},
   },
-});
+})
 ```
 
 ## Prototypes of the lab workspace
